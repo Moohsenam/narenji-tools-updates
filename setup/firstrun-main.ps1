@@ -1,4 +1,4 @@
-# NARENJI-SETUP main script  (version 3)
+# NARENJI-SETUP main script  (version 4)
 # Run by firstrun.ps1. The newest copy is downloaded from GitHub (narenji-tools-updates/setup/firstrun-main.ps1),
 # the copy on the USB stick is only the fallback - so this file can be fixed without touching the sticks.
 #   - .NET Desktop runtime is installed FIRST so NarenjiStore Tools opens and starts drivers within a minute or two
@@ -11,6 +11,31 @@ $td = "$env:ProgramFiles\NarenjiStore"; $nd = "$env:ProgramFiles\Narenji"
 $a = "$S\apps"; $r = "$S\runtimes"
 $busyFlag = "$env:WINDIR\Temp\narenji-drivers-busy"
 function Note($s, $c = 'Gray') { Write-Host "   $s" -ForegroundColor $c }
+
+# ---------- Start menu fix (Microsoft KB5072911) ----------
+# Images with a 2025+ cumulative update can show the first desktop before the XAML shell packages are registered
+# for the user: Start, Search and Settings then never open, even after restarts. Register them for this user now,
+# and through Active Setup for every account made later (Active Setup runs before that account's desktop starts).
+$shellFix = "$env:ProgramData\NarenjiStore\shell-fix.ps1"
+New-Item -ItemType Directory -Force (Split-Path $shellFix) | Out-Null
+Set-Content $shellFix -Encoding UTF8 -Value @'
+foreach ($p in 'Microsoft.UI.Xaml.CBS_8wekyb3d8bbwe', 'MicrosoftWindows.Client.CBS_cw5n1h2txyewy', 'MicrosoftWindows.Client.Core_cw5n1h2txyewy') {
+  $m = "$env:WINDIR\SystemApps\$p\appxmanifest.xml"
+  if (Test-Path $m) { try { Add-AppxPackage -Register -Path $m -DisableDevelopmentMode -ErrorAction Stop } catch { } }
+}
+'@
+try {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $shellFix
+  Get-Process StartMenuExperienceHost, ShellExperienceHost, SearchHost -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  $as = 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{6E1B3F2A-9C4D-4E8B-A1F0-5A7C2D9E3B41}'
+  New-Item $as -Force | Out-Null
+  Set-ItemProperty $as '(default)' 'NarenjiStore Start menu fix'
+  Set-ItemProperty $as 'StubPath' "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$shellFix`""
+  Set-ItemProperty $as 'Version' '1,0'
+  Set-ItemProperty $as 'IsInstalled' 1 -Type DWord
+  Note 'Start menu fix applied' Green
+} catch { Note "Start menu fix failed: $($_.Exception.Message)" Red }
+
 
 # ---------- copy-only items + shortcuts first ----------
 New-Item -ItemType Directory -Force $nd, $td | Out-Null
